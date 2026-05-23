@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyDashboards — ISTEC</title>
+
+  <!--
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  INDEX — Página Principal / Portal de Entrada                   ║
+  ║  Projeto 3 — Dashboards Criativos com p5.js — ISTEC             ║
+  ╠══════════════════════════════════════════════════════════════════╣
+  ║  Liga os dois dashboards:                                        ║
+  ║  1. World Pulse  → Meteorologia, Sismos, ISS (p5.js + 3 APIs)  ║
+  ║  2. Glitch Studio → Fotografia + Filtros de Imagem (p5.js)     ║
+  ╚══════════════════════════════════════════════════════════════════╝
+  -->
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #050a12;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Canvas de fundo com animação p5.js */
+    #bg-canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* Container principal por cima do canvas */
+    #content {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      gap: 60px;
+    }
+
+    /* ── Cabeçalho ── */
+    #header {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #header .tag {
+      font-size: 8px;
+      letter-spacing: 4px;
+      color: rgba(85,170,255,0.45);
+      text-transform: uppercase;
+      border: 1px solid rgba(85,170,255,0.2);
+      padding: 4px 14px;
+    }
+
+    #header h1 {
+      font-size: clamp(28px, 5vw, 52px);
+      letter-spacing: 8px;
+      color: #fff;
+      font-weight: normal;
+      text-transform: uppercase;
+    }
+
+    #header h1 span { color: #5af; }
+
+    #header .subtitle {
+      font-size: 9px;
+      letter-spacing: 3px;
+      color: rgba(85,170,255,0.45);
+      text-transform: uppercase;
+    }
+
+    /* Linha divisória decorativa */
+    .divider {
+      width: 100%;
+      max-width: 600px;
+      height: 1px;
+      background: linear-gradient(90deg,
+        transparent,
+        rgba(85,170,255,0.3),
+        transparent
+      );
+    }
+
+    /* ── Grid dos dois cards ── */
+    #cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 420px));
+      gap: 24px;
+      justify-content: center;
+      width: 100%;
+      max-width: 900px;
+    }
+
+    /* ── Card individual ── */
+    .card {
+      background: rgba(8,16,32,0.85);
+      border: 1px solid rgba(85,170,255,0.15);
+      padding: 36px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .card:hover {
+      border-color: var(--accent-dim);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+
+    .card:hover::before { opacity: 1; }
+
+    /* Card 1 — World Pulse (azul) */
+    .card-1 {
+      --accent:     rgba(85,170,255,0.8);
+      --accent-dim: rgba(85,170,255,0.35);
+    }
+
+    /* Card 2 — Glitch Studio (roxo/magenta) */
+    .card-2 {
+      --accent:     rgba(180,80,255,0.8);
+      --accent-dim: rgba(180,80,255,0.35);
+    }
+
+    /* Número do dashboard */
+    .card-number {
+      font-size: 9px;
+      letter-spacing: 3px;
+      color: var(--accent);
+      text-transform: uppercase;
+      opacity: 0.7;
+    }
+
+    /* Ícone grande */
+    .card-icon {
+      font-size: 42px;
+      line-height: 1;
+    }
+
+    /* Título do card */
+    .card-title {
+      font-size: 20px;
+      letter-spacing: 4px;
+      color: #fff;
+      text-transform: uppercase;
+      font-weight: normal;
+    }
+
+    /* Descrição */
+    .card-desc {
+      font-size: 9px;
+      line-height: 2;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: 1px;
+    }
+
+    /* Tags das APIs usadas */
+    .card-apis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .api-tag {
+      font-size: 7px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border: 1px solid var(--accent-dim);
+      color: var(--accent);
+      opacity: 0.8;
+    }
+
+    /* Botão de entrada no card */
+    .card-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 8.5px;
+      letter-spacing: 2px;
+      color: var(--accent);
+      text-transform: uppercase;
+      transition: gap 0.2s;
+    }
+
+    .card:hover .card-btn { gap: 12px; }
+    .card-btn-arrow { font-size: 16px; transition: transform 0.2s; }
+    .card:hover .card-btn-arrow { transform: translateX(4px); }
+
+    /* ── Rodapé ── */
+    #footer {
+      text-align: center;
+      font-size: 7.5px;
+      letter-spacing: 2px;
+      color: rgba(85,170,255,0.25);
+      text-transform: uppercase;
+      line-height: 2;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Canvas de fundo com partículas animadas -->
+  <div id="bg-canvas"></div>
+
+  <div id="content">
+
+    <!-- Cabeçalho -->
+    <div id="header">
+      <div class="tag">Projeto 3 · ISTEC · Design de Interação</div>
+      <h1>My<span>Dashboards</span></h1>
+      <div class="subtitle">Computação Orientada a Dados · p5.js · APIs em Tempo Real</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Cards dos dois dashboards -->
+    <div id="cards">
+
+      <!--
+        DASHBOARD 1 — WORLD PULSE
+        Abre dashboard1.html na mesma janela.
+        Muda para target="_blank" se quiseres abrir numa nova aba.
+      -->
+      <a class="card card-1" href="dashboard1.html">
+        <div class="card-number">Dashboard 01</div>
+        <div class="card-icon">🌍</div>
+        <div class="card-title">World Pulse</div>
+        <div class="card-desc">
+          Painel visual não-interativo que monitoriza<br>
+          dados em tempo real de todo o planeta.<br>
+          Temperaturas, sismos e a posição da ISS<br>
+          mapeados num canvas dinâmico.
+        </div>
+        <div class="card-apis">
+          <span class="api-tag">Open-Meteo</span>
+          <span class="api-tag">USGS Earthquakes</span>
+          <span class="api-tag">WhereTheISS</span>
+        </div>
+        <div class="card-btn">
+          <span>Entrar no Dashboard</span>
+          <span class="card-btn-arrow">→</span>
+        </div>
+      </a>
+
+      <!--
+        DASHBOARD 2 — GLITCH STUDIO
+        Abre dashboard2.html na mesma janela.
+      -->
+      <a class="card card-2" href="dashboard2.html">
+        <div class="card-number">Dashboard 02</div>
+        <div class="card-icon">🎨</div>
+        <div class="card-title">Glitch Studio</div>
+        <div class="card-desc">
+          Painel interativo de edição criativa.<br>
+          Pesquisa imagens por palavras-chave e<br>
+          aplica filtros de pós-processamento<br>
+          diretamente nos píxeis do canvas p5.js.
+        </div>
+        <div class="card-apis">
+          <span class="api-tag">Unsplash API</span>
+          <span class="api-tag">pixels[]</span>
+          <span class="api-tag">Glitch Art</span>
+        </div>
+        <div class="card-btn">
+          <span>Entrar no Dashboard</span>
+          <span class="card-btn-arrow">→</span>
+        </div>
+      </a>
+
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Rodapé -->
+    <div id="footer">
+      <div>Computação Orientada a Dados e Sistemas Interativos Web</div>
+      <div>ISTEC Porto · 2024/2025</div>
+    </div>
+
+  </div>
+
+
+  <script>
+    // ════════════════════════════════════════════════════════════
+    //  ANIMAÇÃO DE FUNDO — p5.js
+    //
+    //  Partículas que flutuam e se ligam quando próximas.
+    //  Usa o mesmo padrão de cores dos dashboards (azul #5af).
+    //  frameRate(24) para poupar CPU — é apenas decoração.
+    //
+    //  Podes ajustar:
+    //    NUM_PARTICLES → número de partículas (menos = mais leve)
+    //    CONNECT_DIST  → distância para ligar partículas com linha
+    //    SPEED         → velocidade de movimento
+    // ════════════════════════════════════════════════════════════
+    const NUM_PARTICLES = 55;
+    const CONNECT_DIST  = 130;
+    const SPEED         = 0.4;
+
+    new p5(function(p) {
+      let particles = [];
+
+      // Cada partícula tem posição, velocidade e tamanho
+      function makeParticle() {
+        return {
+          x:  p.random(p.width),
+          y:  p.random(p.height),
+          vx: p.random(-SPEED, SPEED),
+          vy: p.random(-SPEED, SPEED),
+          r:  p.random(1, 2.5),
+        };
+      }
+
+      p.setup = function() {
+        const cnv = p.createCanvas(window.innerWidth, window.innerHeight);
+        cnv.parent('bg-canvas');
+        p.frameRate(24);
+        for (let i = 0; i < NUM_PARTICLES; i++) particles.push(makeParticle());
+      };
+
+      p.draw = function() {
+        p.background(5, 10, 18, 30); // transparência → deixa rasto subtil
+
+        // Atualiza e desenha partículas
+        for (const pt of particles) {
+          // Movimento
+          pt.x += pt.vx;
+          pt.y += pt.vy;
+
+          // Rebate nas bordas
+          if (pt.x < 0 || pt.x > p.width)  pt.vx *= -1;
+          if (pt.y < 0 || pt.y > p.height) pt.vy *= -1;
+
+          // Ponto
+          p.noStroke();
+          p.fill(85, 170, 255, 80);
+          p.ellipse(pt.x, pt.y, pt.r * 2);
+        }
+
+        // Linhas entre partículas próximas
+        // Opacidade inversamente proporcional à distância
+        p.strokeWeight(0.4);
+        for (let i = 0; i < particles.length; i++) {
+          for (let j = i + 1; j < particles.length; j++) {
+            const d = p.dist(
+              particles[i].x, particles[i].y,
+              particles[j].x, particles[j].y
+            );
+            if (d < CONNECT_DIST) {
+              const alpha = p.map(d, 0, CONNECT_DIST, 50, 0);
+              p.stroke(85, 170, 255, alpha);
+              p.line(particles[i].x, particles[i].y, particles[j].x, particles[j].y);
+            }
+          }
+        }
+      };
+
+      p.windowResized = function() {
+        p.resizeCanvas(window.innerWidth, window.innerHeight);
+      };
+
+    }, 'bg-canvas');
+  </script>
+
+</body>
+</html>
