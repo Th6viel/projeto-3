@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glitch Studio — Dashboard 2</title>
+
+  <!--
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  GLITCH STUDIO — Dashboard 2: Painel de Edição Criativa         ║
+  ║  Projeto 3 — Dashboards Criativos com p5.js — ISTEC             ║
+  ╠══════════════════════════════════════════════════════════════════╣
+  ║  API UTILIZADA:                                                  ║
+  ║  Pollinations.ai — Geração de imagens por IA (Text-to-Image)    ║
+  ║  URL: https://image.pollinations.ai/prompt/{texto}              ║
+  ║  Completamente gratuita, sem chave, sem registo, CORS aberto    ║
+  ║  Modelo: Flux (estado da arte em text-to-image open source)     ║
+  ║                                                                  ║
+  ║  PORQUE ESTA API E NÃO OUTRA:                                    ║
+  ║  - Stable Diffusion API (stability.ai): exige chave + billing   ║
+  ║  - DALL-E (OpenAI): exige chave + custo por imagem              ║
+  ║  - Midjourney: sem API pública                                  ║
+  ║  - Pollinations.ai: gratuita, CORS aberto, sem fricção,         ║
+  ║    ideal para projetos académicos públicos (GitHub Pages)       ║
+  ║                                                                  ║
+  ║  LIMITES:                                                        ║
+  ║  - Sem limite documentado de requests                           ║
+  ║  - Geração demora 5-30 segundos (modelo a correr em GPU remota) ║
+  ║  - Imagens geradas são públicas (não usar dados sensíveis)      ║
+  ║                                                                  ║
+  ║  PÓS-PROCESSAMENTO:                                             ║
+  ║  Todos os filtros usam manipulação direta do array pixels[]      ║
+  ║  do p5.js — sem bibliotecas externas de processamento de imagem ║
+  ╚══════════════════════════════════════════════════════════════════╝
+  -->
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #050a12; overflow: hidden; font-family: 'Courier New', monospace; color: #fff; }
+    canvas { display: block; }
+
+    /* ══ BARRA SUPERIOR ════════════════════════════════════════
+       Contém: título, input do prompt, botão generate, estado
+    ═══════════════════════════════════════════════════════════ */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 55px;
+      background: rgba(3,7,18,0.95);
+      border-bottom: 1px solid rgba(85,170,255,0.15);
+      display: flex; align-items: center;
+      padding: 0 18px; gap: 14px;
+      z-index: 20;
+    }
+
+    #top-title {
+      font-size: 13px; letter-spacing: 4px;
+      color: #5af; white-space: nowrap; flex-shrink: 0;
+    }
+
+    #top-divider {
+      width: 1px; height: 28px;
+      background: rgba(85,170,255,0.2); flex-shrink: 0;
+    }
+
+    /* Input do prompt — ocupa o espaço disponível */
+    #prompt-input {
+      flex: 1;
+      background: rgba(85,170,255,0.06);
+      border: 1px solid rgba(85,170,255,0.25);
+      color: rgba(255,255,255,0.85);
+      padding: 7px 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 10px; letter-spacing: 1px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #prompt-input:focus { border-color: rgba(85,170,255,0.6); }
+    #prompt-input::placeholder { color: rgba(85,170,255,0.35); }
+
+    #generate-btn {
+      background: rgba(85,170,255,0.12);
+      border: 1px solid rgba(85,170,255,0.5);
+      color: #5af; padding: 7px 18px; cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+      transition: background 0.2s; white-space: nowrap; flex-shrink: 0;
+    }
+    #generate-btn:hover:not(:disabled) { background: rgba(85,170,255,0.25); }
+    #generate-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #top-status {
+      font-size: 8px; letter-spacing: 1px;
+      color: rgba(85,170,255,0.5); white-space: nowrap; flex-shrink: 0;
+      min-width: 120px; text-align: right;
+    }
+
+    /* ══ TOOLBAR INFERIOR ══════════════════════════════════════
+       Contém: 5 filtros com [−] valor [+] + Paint + Reset + Export
+       Cada filtro tem:
+         - Nome (label)
+         - Botão − (diminui intensidade)
+         - Valor atual
+         - Botão + (aumenta intensidade)
+    ═══════════════════════════════════════════════════════════ */
+    #toolbar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 78px;
+      background: rgba(3,7,18,0.97);
+      border-top: 1px solid rgba(85,170,255,0.15);
+      display: flex; align-items: center;
+      justify-content: center;
+      padding: 0 18px; gap:12px;
+      z-index: 20;
+    }
+
+    /* Separador vertical entre grupos de controlos */
+    .toolbar-sep {
+      width: 1px; height: 40px; flex-shrink: 0;
+      background: rgba(85,170,255,0.15);
+      margin: 0 8px;
+    }
+
+    /* Um controlo de filtro: label + [−] valor [+] */
+    .filter-ctrl {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 5px; flex-shrink: 0;
+      min-width: 80px;
+    }
+
+    .filter-label {
+      font-size: 9px; letter-spacing: 1.5px;
+      color: rgba(85,170,255,0.55); text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* Quando o filtro tem valor > 0, o label fica mais vivo */
+    .filter-ctrl.active .filter-label { color: rgba(85,170,255,0.9); }
+
+    .filter-row { display: flex; align-items: center; gap: 6px; }
+
+    /* Botões + e − */
+    .filter-btn {
+      width: 22px; height: 22px;
+      background: rgba(85,170,255,0.08);
+      border: 1px solid rgba(85,170,255,0.3);
+      color: #5af; cursor: pointer;
+      font-size: 14px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Courier New', monospace;
+      transition: background 0.15s;
+      user-select: none;
+    }
+    .filter-btn:hover { background: rgba(85,170,255,0.22); }
+    .filter-btn:active { background: rgba(85,170,255,0.35); }
+
+    /* Valor atual do filtro */
+    .filter-val {
+      font-size: 11px; color: #5af;
+      min-width: 24px; text-align: center; letter-spacing: 1px;
+    }
+
+    /* ── Botões de ação (Paint, Reset, Export) ── */
+    .action-btn {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 5px; flex-shrink: 0;
+      cursor: pointer; padding: 6px 10px;
+      background: rgba(85,170,255,0.06);
+      border: 1px solid rgba(85,170,255,0.25);
+      color: rgba(85,170,255,0.7);
+      font-family: 'Courier New', monospace;
+      font-size: 7px; letter-spacing: 1.5px; text-transform: uppercase;
+      transition: background 0.2s, color 0.2s;
+      min-width: 68px;
+    }
+    .action-btn:hover { background: rgba(85,170,255,0.18); color: #5af; }
+    .action-btn .action-icon { font-size: 16px; line-height: 1; }
+
+    /* Paint mode quando ativo — cor diferente para destacar */
+    .action-btn.paint-on {
+      background: rgba(255,160,60,0.15);
+      border-color: rgba(255,160,60,0.5);
+      color: rgba(255,160,60,0.9);
+    }
+    .action-btn.paint-on:hover { background: rgba(255,160,60,0.25); }
+
+    /* Export — cor verde para indicar ação positiva */
+    #exportBtn {
+      border-color: rgba(50,210,150,0.35);
+      color: rgba(50,210,150,0.7);
+    }
+    #exportBtn:hover { background: rgba(50,210,150,0.12); color: rgba(50,210,150,0.9); }
+
+    /* Reset — cor mais subtil */
+    #resetBtn { border-color: rgba(255,80,80,0.25); color: rgba(255,100,100,0.6); }
+    #resetBtn:hover { background: rgba(255,80,80,0.1); color: rgba(255,100,100,0.9); }
+
+    /* ══ CANVAS CONTAINER ══════════════════════════════════════
+       O canvas p5.js cobre toda a área entre topbar e toolbar
+    ═══════════════════════════════════════════════════════════ */
+    #canvas-wrap {
+      position: fixed;
+      top: 55px; bottom: 78px; left: 0; right: 0;
+    }
+
+    /* ══ OVERLAY DE LOADING ════════════════════════════════════
+       Aparece por cima do canvas enquanto a imagem está a gerar
+    ═══════════════════════════════════════════════════════════ */
+    #loading-overlay {
+      position: fixed;
+      top: 55px; bottom: 78px; left: 0; right: 0;
+      background: rgba(3,7,18,0.88);
+      display: none; /* escondido por defeito */
+      flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 18px; z-index: 15;
+    }
+    #loading-overlay.visible { display: flex; }
+
+    .load-spinner {
+      width: 36px; height: 36px;
+      border: 2px solid rgba(85,170,255,0.15);
+      border-top-color: #5af;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .load-text {
+      font-size: 10px; letter-spacing: 3px;
+      color: rgba(85,170,255,0.7); text-transform: uppercase;
+      text-align: center; line-height: 1.8;
+    }
+
+    .load-sub {
+      font-size: 8px; color: rgba(85,170,255,0.4);
+      letter-spacing: 1px; text-align: center;
+    }
+
+    /* Cursor pincel quando paint mode ativo */
+    #canvas-wrap.painting { cursor: crosshair; }
+
+    /* Hint inicial quando não há imagem */
+    #empty-hint {
+      position: fixed;
+      top: 50%; left: 50%; transform: translate(-50%,-50%);
+      text-align: center; pointer-events: none; z-index: 5;
+    }
+    #empty-hint .hint-icon  { font-size: 42px; margin-bottom: 14px; opacity: 0.3; }
+    #empty-hint .hint-text  { font-size: 10px; letter-spacing: 2px; color: rgba(85,170,255,0.4); text-transform: uppercase; }
+    #empty-hint .hint-sub   { font-size: 8px; color: rgba(85,170,255,0.25); margin-top: 6px; letter-spacing: 1px; }
+  </style>
+</head>
+<body>
+
+  <!-- ══ BARRA SUPERIOR ══════════════════════════════════════ -->
+  <div id="topbar">
+    <span id="top-title">GLITCH STUDIO</span>
+    <div class="top-divider"></div>
+
+    <input id="prompt-input"
+      type="text"
+      placeholder="Descreve a imagem em inglês... ex: cyberpunk city at night, neon lights, rain"
+      maxlength="300"
+    />
+
+    <button id="generate-btn">⟳ GENERATE</button>
+    <span id="top-status">Sem imagem</span>
+  </div>
+
+  <!-- ══ CANVAS AREA ═════════════════════════════════════════ -->
+  <div id="canvas-wrap">
+    <!-- o canvas p5.js é inserido aqui -->
+  </div>
+
+  <!-- Hint inicial (desaparece quando há imagem) -->
+  <div id="empty-hint">
+    <div class="hint-icon">✦</div>
+    <div class="hint-text">Escreve um prompt e carrega em Generate</div>
+    <div class="hint-sub">A imagem é gerada por IA (Pollinations.ai / Flux) e pode demorar 10–30 segundos</div>
+  </div>
+
+  <!-- Overlay de loading durante a geração -->
+  <div id="loading-overlay">
+    <div class="load-spinner"></div>
+    <div class="load-text">A gerar imagem com IA...<br>Pollinations.ai · Modelo Flux</div>
+    <div class="load-sub">Pode demorar até 30 segundos</div>
+  </div>
+
+  <!-- ══ TOOLBAR INFERIOR ════════════════════════════════════
+       5 filtros + Paint Mode + Reset + Export
+  ═════════════════════════════════════════════════════════ -->
+  <div id="toolbar">
+
+    <!--
+      CHROMATIC ABERRATION
+      Separa os canais RGB horizontalmente.
+      Valor = offset em píxeis (0 = sem efeito, 20 = máximo)
+      Canal R desloca para a direita, canal B para a esquerda.
+    -->
+    <div class="filter-ctrl" id="ctrl-chromatic">
+      <span class="filter-label">Chromatic AB</span>
+      <div class="filter-row">
+        <button class="filter-btn" data-filter="chromatic" data-dir="-1">−</button>
+        <span class="filter-val" id="val-chromatic">0</span>
+        <button class="filter-btn" data-filter="chromatic" data-dir="1">+</button>
+      </div>
+    </div>
+
+    <!--
+      SCANLINE GLITCH
+      Desloca linhas horizontais aleatoriamente.
+      Valor = intensidade (0 = sem efeito, 10 = máximo)
+      Mais intensidade = mais linhas afetadas e mais deslocamento.
+    -->
+    <div class="filter-ctrl" id="ctrl-scanline">
+      <span class="filter-label">Scanline</span>
+      <div class="filter-row">
+        <button class="filter-btn" data-filter="scanline" data-dir="-1">−</button>
+        <span class="filter-val" id="val-scanline">0</span>
+        <button class="filter-btn" data-filter="scanline" data-dir="1">+</button>
+      </div>
+    </div>
+
+    <!--
+      WAVE DISTORTION
+      Deforma a imagem com uma função seno.
+      Valor = amplitude em píxeis (0 = sem efeito, 20 = máximo)
+      Cria um efeito de ondulação horizontal.
+    -->
+    <div class="filter-ctrl" id="ctrl-wave">
+      <span class="filter-label">Wave Dist.</span>
+      <div class="filter-row">
+        <button class="filter-btn" data-filter="wave" data-dir="-1">−</button>
+        <span class="filter-val" id="val-wave">0</span>
+        <button class="filter-btn" data-filter="wave" data-dir="1">+</button>
+      </div>
+    </div>
+
+    
+    <div class="toolbar-sep"></div>
+
+    <!--
+      PAINT MODE
+      Quando ativo, o rato funciona como um pincel de glitch.
+      Arrastar sobre a imagem aplica distorção aleatória
+      apenas na área sob o cursor (raio de 40px).
+      Isto manipula diretamente os pixels[] da imagem processada.
+    -->
+    <button class="action-btn" id="paintBtn">
+      <span class="action-icon">🖌</span>
+      Paint Mode
+    </button>
+
+    <!--
+      RESET
+      Restaura a imagem ao estado original (sem filtros).
+      Limpa todos os valores dos filtros e recalcula.
+    -->
+    <button class="action-btn" id="resetBtn">
+      <span class="action-icon">↺</span>
+      Reset
+    </button>
+
+    <!--
+      EXPORT PNG
+      Guarda o canvas atual como ficheiro PNG.
+      Usa a função saveCanvas() do p5.js que cria um download
+      automático no browser com o nome "glitch_export.png".
+    -->
+    <button class="action-btn" id="exportBtn">
+      <span class="action-icon">💾</span>
+      Export PNG
+    </button>
+
+    <div class="toolbar-sep"></div>
+
+    <!--
+      DITHERING / POSTERIZE
+      Reduz o número de cores disponíveis por canal.
+      Valor = número de níveis (2 = 8 cores, 8 = 512 cores)
+      Cria um efeito retro de paleta limitada (estilo Game Boy / CRT).
+      Nota: valor 0 = desativado (sem redução de cores)
+    -->
+    <div class="filter-ctrl" id="ctrl-dither">
+      <span class="filter-label">Dither</span>
+      <div class="filter-row">
+        <button class="filter-btn" data-filter="dither" data-dir="-1">−</button>
+        <span class="filter-val" id="val-dither">0</span>
+        <button class="filter-btn" data-filter="dither" data-dir="1">+</button>
+      </div>
+    </div>
+
+      <!--
+      PIXELATE
+      Agrupa píxeis em blocos NxN com cor média.
+      Valor = tamanho do bloco em píxeis (1 = sem efeito, 30 = muito pixelado)
+      Cria o efeito "8-bit" / pixel art.
+    -->
+    <div class="filter-ctrl" id="ctrl-pixelate">
+      <span class="filter-label">Pixelate</span>
+      <div class="filter-row">
+        <button class="filter-btn" data-filter="pixelate" data-dir="-1">−</button>
+        <span class="filter-val" id="val-pixelate">1</span>
+        <button class="filter-btn" data-filter="pixelate" data-dir="1">+</button>
+      </div>
+    </div>
+
+  </div><!-- fim toolbar -->
+
+
+  <script>
+    // ════════════════════════════════════════════════════════════
+    //  CONFIGURAÇÃO DOS FILTROS
+    //  Cada filtro tem:
+    //    value → valor atual
+    //    min   → valor mínimo (botão − para aqui)
+    //    max   → valor máximo (botão + para aqui)
+    //    step  → incremento de cada clique em + ou −
+    // ════════════════════════════════════════════════════════════
+    const FILTERS = {
+      chromatic: { value:0,  min:0,  max:20, step:2  },
+      scanline:  { value:0,  min:0,  max:10, step:1  },
+      wave:      { value:0,  min:0,  max:20, step:2  },
+      dither:    { value:0,  min:0,  max:8,  step:1  },
+      pixelate:  { value:1,  min:1,  max:30, step:2  },
+    };
+
+    // ════════════════════════════════════════════════════════════
+    //  ESTADO GLOBAL
+    // ════════════════════════════════════════════════════════════
+    let originalImg   = null;  // imagem original da API (nunca alterada)
+    let processedImg  = null;  // imagem após filtros (o que é desenhado)
+    let needsProcess  = false; // flag: true quando filtros mudaram
+    let paintMode     = false; // paint mode ativo?
+    let isPainting    = false; // rato pressionado em paint mode?
+    let hasImage      = false; // já gerou alguma imagem?
+
+    // Posição e escala da imagem no canvas (calculadas em drawImage)
+    // Necessárias para o paint mode converter coords do rato → coords da imagem
+    let imgDx = 0, imgDy = 0, imgScale = 1;
+
+
+    // ════════════════════════════════════════════════════════════
+    //  POLLINATIONS.AI — GERAÇÃO DE IMAGEM
+    //
+    //  Endpoint: https://image.pollinations.ai/prompt/{texto}
+    //  Parâmetros usados:
+    //    width, height → resolução da imagem gerada
+    //    nologo=true   → remove o watermark da Pollinations
+    //    seed=...      → semente aleatória; garante imagem diferente
+    //                    a cada clique (sem seed poderia usar cache)
+    //    model=flux    → modelo de geração (padrão e o melhor gratuito)
+    //
+    //  O fetch é simples: o URL devolve a imagem diretamente em JPG.
+    //  Usamos loadImage() do p5.js para carregar no canvas.
+    //
+    //  ATENÇÃO: pode demorar 10–30 segundos — é normal.
+    //  O modelo corre em GPU remota e a queue pode estar ocupada.
+    // ════════════════════════════════════════════════════════════
+    function generateImage(prompt) {
+  if (!prompt.trim()) return;
+
+  setStatus('A procurar...');
+  document.getElementById('generate-btn').disabled = true;
+  document.getElementById('loading-overlay').classList.add('visible');
+
+  // Unsplash API — busca imagem aleatória pelo termo do prompt
+  // Endpoint: /photos/random?query=...&orientation=landscape
+  const ACCESS_KEY = 'A_TUA_NOVA_ACCESS_KEY'; // substitui pela nova chave
+  const url = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(prompt)}&orientation=landscape&client_id=${"llQ06W5Jl5xTWBJyaTu5sjle095c4NPq2MV4svvQdRQ"}`;
+
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      // Unsplash devolve JSON com URLs da imagem em vários tamanhos
+      // Usamos "regular" (~1080px) para boa qualidade sem ser demasiado pesado
+      const imageUrl = data.urls.regular;
+      const author   = data.user.name;
+
+      sketch.loadImage(imageUrl, (img) => {
+        originalImg  = img;
+        processedImg = img.get();
+        needsProcess = false;
+        hasImage     = true;
+
+        document.getElementById('loading-overlay').classList.remove('visible');
+        document.getElementById('empty-hint').style.display = 'none';
+        document.getElementById('generate-btn').disabled = false;
+        setStatus(`Photo by ${author} · Unsplash`);
+
+        applyAllFilters();
+      }, () => {
+        document.getElementById('loading-overlay').classList.remove('visible');
+        document.getElementById('generate-btn').disabled = false;
+        setStatus('Erro ao carregar imagem');
+      });
+    })
+    .catch(() => {
+      document.getElementById('loading-overlay').classList.remove('visible');
+      document.getElementById('generate-btn').disabled = false;
+      setStatus('Erro — verifica a Access Key');
+    });
+}
+
+    // Atualiza o texto de estado no canto direito da topbar
+    function setStatus(msg) {
+      document.getElementById('top-status').textContent = msg;
+    }
+
+
+    // ════════════════════════════════════════════════════════════
+    //  SISTEMA DE FILTROS — PIXEL MANIPULATION
+    //
+    //  Todos os filtros trabalham diretamente sobre o array pixels[]
+    //  de uma cópia da imagem original.
+    //
+    //  O array pixels[] tem estrutura: [R,G,B,A, R,G,B,A, ...]
+    //  Para aceder ao pixel na posição (x,y) de uma imagem de largura W:
+    //    index = (y * W + x) * 4
+    //    pixels[index]   = R (vermelho, 0-255)
+    //    pixels[index+1] = G (verde,    0-255)
+    //    pixels[index+2] = B (azul,     0-255)
+    //    pixels[index+3] = A (alpha,    0-255)
+    //
+    //  Sempre que os filtros mudam, applyAllFilters() é chamado.
+    //  Começa com uma cópia fresca do originalImg para não acumular
+    //  distorções — aplicar filtros sobre filtros daria resultados imprevistos.
+    // ════════════════════════════════════════════════════════════
+
+    function applyAllFilters() {
+      if (!originalImg) return;
+
+      // Começa sempre com uma cópia limpa da imagem original
+      processedImg = originalImg.get();
+      processedImg.loadPixels();
+
+      const w = processedImg.width;
+      const h = processedImg.height;
+      const px = processedImg.pixels;
+
+      // Aplica cada filtro em sequência (a ordem importa visualmente)
+      if (FILTERS.wave.value > 0)      applyWave(px, w, h, FILTERS.wave.value);
+      if (FILTERS.chromatic.value > 0) applyChromatic(px, w, h, FILTERS.chromatic.value);
+      if (FILTERS.pixelate.value > 1)  applyPixelate(px, w, h, FILTERS.pixelate.value);
+      if (FILTERS.dither.value > 0)    applyDither(px, FILTERS.dither.value);
+      if (FILTERS.scanline.value > 0)  applyScanline(px, w, h, FILTERS.scanline.value);
+
+      processedImg.updatePixels();
+      needsProcess = false;
+    }
+
+    /*
+      WAVE DISTORTION
+      Para cada linha (y), desloca todos os seus píxeis horizontalmente
+      por uma quantidade definida por sin(y * frequência) * amplitude.
+      Cria o efeito de imagem "derretida" ou em "onda".
+      Usa uma cópia snapshot para evitar ler pixels já modificados.
+    */
+    function applyWave(px, w, h, amplitude) {
+      const snap = new Uint8ClampedArray(px); // snapshot antes de modificar
+      const freq = 0.04; // frequência da onda — podes aumentar para ondas mais curtas
+
+      for (let y = 0; y < h; y++) {
+        // Deslocamento horizontal para esta linha (em píxeis)
+        const shift = Math.round(Math.sin(y * freq) * amplitude);
+
+        for (let x = 0; x < w; x++) {
+          const i  = (y * w + x) * 4;
+          // Pixel de origem após o deslocamento (com clamp nas bordas)
+          const sx = Math.max(0, Math.min(w - 1, x + shift));
+          const si = (y * w + sx) * 4;
+
+          px[i]   = snap[si];
+          px[i+1] = snap[si+1];
+          px[i+2] = snap[si+2];
+          // Alpha fica igual (px[i+3] já está correto da cópia)
+        }
+      }
+    }
+
+    /*
+      CHROMATIC ABERRATION
+      Separa os canais de cor RGB com um offset horizontal:
+        Canal R → deslocado offset píxeis para a direita
+        Canal G → fica no lugar original
+        Canal B → deslocado offset píxeis para a esquerda
+      Imita a aberração cromática de lentes fotográficas baratas
+      ou monitores CRT com convergência imperfeita.
+    */
+    function applyChromatic(px, w, h, offset) {
+      const snap = new Uint8ClampedArray(px);
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+
+          // Canal R: vai buscar pixel offset à direita
+          const rxSrc = Math.min(w - 1, x + offset);
+          px[i]   = snap[(y * w + rxSrc) * 4];
+
+          // Canal G: fica no lugar (já está correto no snap)
+          // px[i+1] já está certo
+
+          // Canal B: vai buscar pixel offset à esquerda
+          const bxSrc = Math.max(0, x - offset);
+          px[i+2] = snap[(y * w + bxSrc) * 4 + 2];
+        }
+      }
+    }
+
+    /*
+      PIXELATE
+      Divide a imagem em blocos de blockSize × blockSize píxeis.
+      Todos os píxeis de cada bloco ficam com a cor média do bloco.
+      Cria o efeito "8-bit" / pixel art.
+      Mais eficiente do que ler de um snapshot porque o bloco
+      inteiro tem o mesmo valor — não há dependências entre píxeis.
+    */
+    function applyPixelate(px, w, h, blockSize) {
+      for (let by = 0; by < h; by += blockSize) {
+        for (let bx = 0; bx < w; bx += blockSize) {
+          // Calcular cor média do bloco
+          let r = 0, g = 0, b = 0, count = 0;
+
+          for (let dy = 0; dy < blockSize && by + dy < h; dy++) {
+            for (let dx = 0; dx < blockSize && bx + dx < w; dx++) {
+              const i = ((by + dy) * w + (bx + dx)) * 4;
+              r += px[i]; g += px[i+1]; b += px[i+2];
+              count++;
+            }
+          }
+
+          r = Math.round(r / count);
+          g = Math.round(g / count);
+          b = Math.round(b / count);
+
+          // Preencher o bloco inteiro com a cor média
+          for (let dy = 0; dy < blockSize && by + dy < h; dy++) {
+            for (let dx = 0; dx < blockSize && bx + dx < w; dx++) {
+              const i = ((by + dy) * w + (bx + dx)) * 4;
+              px[i] = r; px[i+1] = g; px[i+2] = b;
+            }
+          }
+        }
+      }
+    }
+
+    /*
+      DITHERING / POSTERIZE
+      Reduz o número de valores possíveis por canal de cor.
+      Com 'levels' níveis: os valores possíveis são 0, 255/(levels-1), ...
+      Ex: levels=2 → apenas 0 e 255 (preto e branco por canal → 8 cores)
+          levels=4 → 0, 85, 170, 255 por canal → 64 cores possíveis
+      Cria o efeito de paleta limitada de consolas retro (Game Boy, NES).
+    */
+    function applyDither(px, levels) {
+      const step = 255 / levels; // intervalo entre níveis
+
+      for (let i = 0; i < px.length; i += 4) {
+        // Arredondar cada canal ao nível mais próximo
+        px[i]   = Math.round(px[i]   / step) * step;
+        px[i+1] = Math.round(px[i+1] / step) * step;
+        px[i+2] = Math.round(px[i+2] / step) * step;
+      }
+    }
+
+    /*
+      SCANLINE GLITCH
+      A cada 'freq' linhas, desloca horizontalmente os píxeis
+      por um valor determinístico (baseado em sin) — não aleatório,
+      para que o efeito não mude a cada chamada.
+      'freq' diminui com a intensidade: mais intensidade = mais linhas glitchadas.
+    */
+    function applyScanline(px, w, h, intensity) {
+      const freq     = Math.max(2, 14 - intensity); // linhas entre cada glitch
+      const maxShift = intensity * 8;                // deslocamento máximo em px
+
+      for (let y = 0; y < h; y++) {
+        if (y % freq !== 0) continue; // linha não afetada
+
+        // Deslocamento determinístico usando sin (não muda entre chamadas)
+        const shift = Math.round(Math.sin(y * 0.3) * maxShift);
+        if (shift === 0) continue;
+
+        // Deslocar a linha inteira horizontalmente
+        // Guarda a linha antes de modificar
+        const lineStart = y * w * 4;
+        const lineSnap  = px.slice(lineStart, lineStart + w * 4);
+
+        for (let x = 0; x < w; x++) {
+          const i   = (y * w + x) * 4;
+          const sx  = Math.max(0, Math.min(w - 1, x + shift));
+          const si  = sx * 4;
+          px[i]   = lineSnap[si];
+          px[i+1] = lineSnap[si+1];
+          px[i+2] = lineSnap[si+2];
+        }
+      }
+    }
+
+
+    // ════════════════════════════════════════════════════════════
+    //  PAINT MODE — PINCEL DE GLITCH
+    //
+    //  Quando paint mode está ativo, arrastar o rato sobre a imagem
+    //  aplica um efeito de distorção local (glitch) apenas na área
+    //  sob o cursor (raio de BRUSH_RADIUS píxeis na imagem original).
+    //
+    //  Funciona diretamente sobre processedImg.pixels[] sem resetar
+    //  a imagem — o efeito acumula-se com cada passagem do pincel.
+    //
+    //  O efeito do pincel: para cada pixel dentro do raio,
+    //  vai buscar a cor de um pixel vizinho aleatório (deslocamento
+    //  proporcional à distância ao centro do pincel).
+    //  Cria um efeito de "dispersão" ou "smear" local.
+    // ════════════════════════════════════════════════════════════
+    const BRUSH_RADIUS = 40; // raio do pincel em píxeis da IMAGEM
+
+    function applyPaintBrush(canvasX, canvasY) {
+      if (!processedImg) return;
+
+      // Converter coordenadas do canvas → coordenadas da imagem
+      // imgDx, imgDy, imgScale são calculados em drawImage() no sketch
+      const imgX = Math.round((canvasX - imgDx) / imgScale);
+      const imgY = Math.round((canvasY - imgDy) / imgScale);
+
+      const w = processedImg.width;
+      const h = processedImg.height;
+
+      processedImg.loadPixels();
+      const px = processedImg.pixels;
+
+      // Percorrer todos os píxeis dentro do raio do pincel
+      for (let dy = -BRUSH_RADIUS; dy <= BRUSH_RADIUS; dy++) {
+        for (let dx = -BRUSH_RADIUS; dx <= BRUSH_RADIUS; dx++) {
+          // Verificar se está dentro do círculo do pincel
+          const dist2 = dx * dx + dy * dy;
+          if (dist2 > BRUSH_RADIUS * BRUSH_RADIUS) continue;
+
+          const px_coord = imgX + dx;
+          const py_coord = imgY + dy;
+
+          // Verificar se está dentro dos limites da imagem
+          if (px_coord < 0 || px_coord >= w || py_coord < 0 || py_coord >= h) continue;
+
+          const i = (py_coord * w + px_coord) * 4;
+
+          // Deslocamento aleatório proporcional à distância ao centro
+          // Píxeis no centro do pincel deslocam menos, na borda mais
+          const distFactor = Math.sqrt(dist2) / BRUSH_RADIUS;
+          const maxDisp    = Math.round(distFactor * 25 + 5);
+          const rx = px_coord + Math.round((Math.random() - 0.5) * maxDisp);
+          const ry = py_coord + Math.round((Math.random() - 0.5) * maxDisp);
+
+          // Buscar cor do pixel aleatório (com clamp nas bordas)
+          const srcX = Math.max(0, Math.min(w - 1, rx));
+          const srcY = Math.max(0, Math.min(h - 1, ry));
+          const si   = (srcY * w + srcX) * 4;
+
+          px[i]   = px[si];
+          px[i+1] = px[si+1];
+          px[i+2] = px[si+2];
+        }
+      }
+
+      processedImg.updatePixels();
+    }
+
+    // Reset: volta ao estado original sem filtros
+    function resetFilters() {
+      if (!originalImg) return;
+      Object.keys(FILTERS).forEach(key => {
+        FILTERS[key].value = key === 'pixelate' ? 1 : 0;
+        document.getElementById('val-' + key).textContent = FILTERS[key].value;
+        document.getElementById('ctrl-' + key).classList.remove('active');
+      });
+      processedImg = originalImg.get();
+      needsProcess = false;
+    }
+
+
+    // ════════════════════════════════════════════════════════════
+    //  CONTROLOS DA TOOLBAR — EVENT LISTENERS
+    // ════════════════════════════════════════════════════════════
+
+    // Botões + e − dos filtros
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.filter;
+        const dir = parseInt(btn.dataset.dir);
+        const f   = FILTERS[key];
+
+        // Calcula novo valor com clamp nos limites
+        f.value = Math.max(f.min, Math.min(f.max, f.value + dir * f.step));
+
+        // Atualiza o display do valor
+        document.getElementById('val-' + key).textContent = f.value;
+
+        // Marca o controlo como ativo se o valor não for o default
+        const isDefault = (key === 'pixelate' ? f.value === 1 : f.value === 0);
+        document.getElementById('ctrl-' + key).classList.toggle('active', !isDefault);
+
+        // Sinaliza que precisa de reprocessar a imagem
+        needsProcess = true;
+      });
+    });
+
+    // Paint Mode toggle
+    document.getElementById('paintBtn').addEventListener('click', function() {
+      paintMode = !paintMode;
+      this.classList.toggle('paint-on', paintMode);
+      this.querySelector('.action-icon').textContent = paintMode ? '✏️' : '🖌';
+      document.getElementById('canvas-wrap').classList.toggle('painting', paintMode);
+    });
+
+    // Reset
+    document.getElementById('resetBtn').addEventListener('click', resetFilters);
+
+    // Generate
+    document.getElementById('generate-btn').addEventListener('click', () => {
+      const prompt = document.getElementById('prompt-input').value;
+      generateImage(prompt);
+    });
+
+    // Enter no input também gera
+    document.getElementById('prompt-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') generateImage(e.target.value);
+    });
+
+    // Export — chamado pelo botão, usa a função do sketch p5.js
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      if (!hasImage) return;
+      // sketch.saveCanvas() está disponível porque 'sketch' é exposto globalmente
+      sketch.saveCanvas('glitch_export', 'png');
+    });
+
+
+    // ════════════════════════════════════════════════════════════
+    //  SKETCH p5.js
+    //  Variável 'sketch' exposta globalmente para o Export funcionar
+    // ════════════════════════════════════════════════════════════
+    let sketch; // referência global ao sketch p5.js
+
+    new p5(function(p) {
+      sketch = p; // expõe para uso fora do sketch (Export, generateImage)
+      p.mouseDragged = function() {
+      if (isPainting && paintMode) applyPaintBrush(p.mouseX, p.mouseY);
+    };
+
+      p.setup = function() {
+        // Canvas ocupa a área entre topbar (55px) e toolbar (78px)
+        const cnv = p.createCanvas(window.innerWidth, window.innerHeight - 55 - 78);
+        cnv.parent('canvas-wrap');
+        p.frameRate(24);
+
+        // ── Eventos de paint mode no canvas ──
+      cnv.mousePressed(() => { if (paintMode && hasImage) isPainting = true; });
+      cnv.mouseReleased(() => { isPainting = false; });
+      cnv.mouseMoved(() => {
+        if (isPainting && paintMode) applyPaintBrush(p.mouseX, p.mouseY);
+    });
+
+      p.draw = function() {
+        p.background(5, 10, 18);
+
+        // Se os filtros mudaram desde o último frame, reprocessa
+        if (needsProcess) applyAllFilters();
+
+        if (processedImg) {
+          drawImage();
+        } else {
+          // Sem imagem: fundo com grid subtil
+          drawEmptyGrid();
+        }
+      };
+
+      /*
+        Desenha a imagem processada centrada no canvas,
+        com a maior escala possível sem cortar (letterbox).
+        Também calcula imgDx, imgDy, imgScale para o paint mode.
+      */
+      function drawImage() {
+        const iw    = processedImg.width;
+        const ih    = processedImg.height;
+        // Escala para caber no canvas com margens de 5%
+        imgScale    = Math.min((p.width * 0.95) / iw, (p.height * 0.95) / ih);
+        const dw    = iw * imgScale;
+        const dh    = ih * imgScale;
+        imgDx       = (p.width  - dw) / 2;
+        imgDy       = (p.height - dh) / 2;
+
+        p.image(processedImg, imgDx, imgDy, dw, dh);
+
+        // Anel do pincel quando paint mode ativo
+        if (paintMode) {
+          p.noFill();
+          p.stroke(255, 160, 60, 120);
+          p.strokeWeight(1.5);
+          // Tamanho visual do pincel: raio em píxeis do canvas (não da imagem)
+          p.ellipse(p.mouseX, p.mouseY, BRUSH_RADIUS * imgScale * 2);
+        }
+      }
+
+      // Grid subtil enquanto não há imagem
+      function drawEmptyGrid() {
+        p.stroke(20, 45, 80, 40); p.strokeWeight(0.5);
+        const gap = 40;
+        for (let x = 0; x < p.width;  x += gap) p.line(x, 0, x, p.height);
+        for (let y = 0; y < p.height; y += gap) p.line(0, y, p.width, y);
+      }
+
+      p.mouseDragged = function() {
+      if (isPainting && paintMode) applyPaintBrush(p.mouseX, p.mouseY);
+      };
+
+      
+      p.windowResized = function() {
+        p.resizeCanvas(window.innerWidth, window.innerHeight - 55 - 78);
+      };
+    }
+
+    }); // fim sketch p5.js
+  </script>
+</body>
+</html>
