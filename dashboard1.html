@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>World Pulse — Dashboard 1</title>
+
+  <!--
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  WORLD PULSE — Dashboard 1: Painel Informativo                  ║
+  ║  Projeto 3 — Dashboards Criativos com p5.js — ISTEC             ║
+  ╠══════════════════════════════════════════════════════════════════╣
+  ║  APIs:                                                           ║
+  ║  1. Open-Meteo  → Temperatura atual + variação horária (24h)    ║
+  ║  2. USGS        → Sismos globais >= 2.5 (últimas 24h)           ║
+  ║  3. WhereTheISS → Posição em tempo real da ISS                  ║
+  ╠══════════════════════════════════════════════════════════════════╣
+  ║  COMO CORRER LOCALMENTE:                                         ║
+  ║  → Instala "Live Server" no VS Code                             ║
+  ║  → Clique direito → "Open with Live Server"                     ║
+  ║  → http://127.0.0.1:5500                                        ║
+  ╚══════════════════════════════════════════════════════════════════╝
+  -->
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #050a12; overflow: hidden; font-family: 'Courier New', monospace; }
+    canvas { display: block; }
+
+    /* ── UI fixa ── */
+    #title {
+      position: fixed; top: 18px; left: 20px;
+      font-size: 22px; letter-spacing: 5px; color: #5af;
+      pointer-events: none; z-index: 10;
+    }
+    #subtitle {
+      position: fixed; top: 48px; left: 20px;
+      font-size: 9px; letter-spacing: 3px;
+      color: rgba(85,170,255,0.6); text-transform: uppercase;
+      pointer-events: none; z-index: 10;
+    }
+    #city-menu {
+  position: fixed;
+  top: 14px;
+  left: 55%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 10;
+  flex-wrap: nowrap;
+}
+
+.city-btn {
+  background: rgba(85,170,255,0.07);
+  border: 1px solid rgba(85,170,255,0.25);
+  color: rgba(85,170,255,0.7);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 7.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+
+.city-btn:hover {
+  background: rgba(85,170,255,0.18);
+  color: #5af;
+}
+
+/* Estilo quando a cidade está selecionada (painel aberto) */
+.city-btn.active {
+  background: rgba(85,170,255,0.22);
+  border-color: rgba(85,170,255,0.7);
+  color: #5af;
+}
+
+    #hud {
+      position: fixed; top: 18px; right: 16px;
+      text-align: right; font-size: 9px; line-height: 1.9;
+      color: rgba(85,170,255,0.9); pointer-events: none;
+      z-index: 10; max-width: 200px;
+    }
+    #statusbar {
+      position: fixed; bottom: 12px; left: 20px;
+      font-size: 8px; letter-spacing: 1px;
+      color: rgba(85,170,255,0.5); pointer-events: none; z-index: 10;
+    }
+    #legend {
+      position: fixed; bottom: 32px; left: 20px;
+      display: flex; align-items: center; gap: 12px;
+      font-size: 7.5px; color: rgba(85,170,255,0.5);
+      pointer-events: none; z-index: 10;
+    }
+    .leg { display: flex; align-items: center; gap: 4px; }
+    .leg-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    #controls {
+      position: fixed; bottom: 12px; right: 16px;
+      display: flex; gap: 7px; z-index: 10;
+    }
+    .btn {
+      background: rgba(80,170,255,0.08);
+      border: 1px solid rgba(85,170,255,0.35);
+      color: #5af; padding: 5px 12px; cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 8.5px; letter-spacing: 1px; text-transform: uppercase;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: rgba(80,170,255,0.2); }
+    .btn.off { color: rgba(85,170,255,0.4); border-color: rgba(85,170,255,0.2); }
+
+    #loading {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      font-size: 12px; letter-spacing: 3px; color: #5af;
+      text-transform: uppercase; z-index: 30;
+      animation: blink 1.5s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+
+    /* ══════════════════════════════════════════════════════════
+       PAINEL ESQUERDO — DETALHES DA CIDADE
+       Desliza da esquerda (translateX -100% → 0).
+       Tem o mesmo padrão do painel dos sismos mas no lado oposto
+       e com esquema de cores azul (em vez de laranja dos sismos).
+    ══════════════════════════════════════════════════════════ */
+    #city-panel {
+      position: fixed; top: 0; left: 0;
+      width: 300px; height: 100%;
+      background: rgba(3,7,18,0.97);
+      border-right: 1px solid rgba(85,170,255,0.25);
+      z-index: 50;
+      transform: translateX(-100%);    /* começa fora do ecrã à esquerda */
+      transition: transform 0.3s ease;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #city-panel.open { transform: translateX(0); }
+
+    /* ══════════════════════════════════════════════════════════
+       PAINEL DIREITO — DETALHES DO SISMO
+       Desliza da direita (translateX 100% → 0).
+       Esquema de cores laranja/vermelho para sismos.
+    ══════════════════════════════════════════════════════════ */
+    #quake-panel {
+      position: fixed; top: 0; right: 0;
+      width: 285px; height: 100%;
+      background: rgba(3,7,18,0.97);
+      border-left: 1px solid rgba(255,70,16,0.25);
+      z-index: 50;
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #quake-panel.open { transform: translateX(0); }
+
+    /* Estilos partilhados pelos dois painéis */
+    .panel-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 18px 12px;
+    }
+    .panel-title { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; }
+    .panel-close {
+      background: none; cursor: pointer; font-size: 16px;
+      width: 26px; height: 26px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s; border: 1px solid transparent;
+    }
+    .panel-body { padding: 0 18px 20px; flex: 1; overflow-y: auto; }
+    .panel-footer {
+      padding: 10px 18px;
+      font-size: 7px; letter-spacing: 1px; color: rgba(255,255,255,0.18);
+    }
+
+    /* Cidade — cores azuis */
+    #city-panel .panel-header { border-bottom: 1px solid rgba(85,170,255,0.15); }
+    #city-panel .panel-title  { color: rgba(85,170,255,0.85); }
+    #city-panel .panel-close  { color: rgba(85,170,255,0.6); border-color: rgba(85,170,255,0.25); }
+    #city-panel .panel-close:hover { background: rgba(85,170,255,0.1); }
+    #city-panel .panel-footer { border-top: 1px solid rgba(255,255,255,0.05); }
+
+    /* Sismo — cores laranja */
+    #quake-panel .panel-header { border-bottom: 1px solid rgba(255,70,16,0.15); }
+    #quake-panel .panel-title  { color: rgba(255,70,16,0.85); }
+    #quake-panel .panel-close  { color: rgba(255,70,16,0.6); border-color: rgba(255,70,16,0.25); }
+    #quake-panel .panel-close:hover { background: rgba(255,70,16,0.1); }
+    #quake-panel .panel-footer { border-top: 1px solid rgba(255,255,255,0.05); }
+
+    /* ── Bloco grande de temperatura (painel cidade) ── */
+    .temp-block {
+      display: flex; align-items: flex-end; gap: 10px;
+      padding: 16px 0 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      margin-bottom: 16px;
+    }
+    .temp-number { font-size: 54px; font-weight: bold; line-height: 1; letter-spacing: -2px; }
+    .temp-meta   { display: flex; flex-direction: column; gap: 5px; padding-bottom: 6px; }
+    .temp-label  { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+    .temp-sub    { font-size: 7.5px; color: rgba(255,255,255,0.3); letter-spacing: 1px; }
+
+    /* Min/Max lado a lado */
+    .minmax {
+      display: flex; gap: 0;
+      margin-bottom: 18px;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+    .minmax-item {
+      flex: 1; padding: 10px 14px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .minmax-item:first-child { border-right: 1px solid rgba(255,255,255,0.07); }
+    .minmax-label { font-size: 7px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.3); }
+    .minmax-value { font-size: 18px; font-weight: bold; }
+
+    /* Secção do gráfico horário */
+    .chart-section { margin-bottom: 18px; }
+    .chart-title {
+      font-size: 7px; letter-spacing: 2px; text-transform: uppercase;
+      color: rgba(85,170,255,0.5); margin-bottom: 10px;
+    }
+
+    /* Dados secundários (humidade, vento) */
+    .data-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+    .data-label { font-size: 7px; letter-spacing: 2px; text-transform: uppercase; }
+    .data-value { font-size: 10px; line-height: 1.5; color: rgba(255,255,255,0.8); }
+    .data-sub   { font-size: 8px; color: rgba(255,255,255,0.3); margin-top: 1px; }
+
+    /* Cidade — labels com cor azul */
+    #city-panel .data-label  { color: rgba(85,170,255,0.55); }
+    /* Sismo — labels com cor laranja */
+    #quake-panel .data-label { color: rgba(255,70,16,0.6); }
+
+    /* Bloco de magnitude (painel sismo) */
+    .mag-block {
+      display: flex; align-items: flex-end; gap: 12px;
+      margin-bottom: 16px; padding-bottom: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .mag-number { font-size: 54px; font-weight: bold; line-height: 1; letter-spacing: -2px; }
+    .mag-info   { display: flex; flex-direction: column; gap: 5px; padding-bottom: 6px; }
+    .mag-label  { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+    .mag-scale  { font-size: 7.5px; color: rgba(255,255,255,0.3); }
+    .mag-bar-track {
+      height: 3px; background: rgba(255,255,255,0.08);
+      border-radius: 2px; margin-bottom: 18px; overflow: hidden;
+    }
+    .mag-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+  </style>
+</head>
+<body>
+
+  <div id="title">WORLD PULSE</div>
+  <div id="subtitle">Live Earth Data Feed</div>
+  <div id="city-menu"></div>
+  <div id="statusbar">A inicializar...</div>
+  <div id="loading">A CARREGAR DADOS...</div>
+
+  <div id="legend">
+    <div class="leg"><div class="leg-dot" style="background:#1e64dc"></div>Frio</div>
+    <div class="leg"><div class="leg-dot" style="background:#32d296"></div>Ameno</div>
+    <div class="leg"><div class="leg-dot" style="background:#f0aa18"></div>Quente</div>
+    <div class="leg"><div class="leg-dot" style="background:#ff3c14"></div>Muito quente</div>
+    <div class="leg"><div class="leg-dot" style="background:#ff4610;opacity:.55"></div>Sismo ≥2.5</div>
+    <div class="leg"><div class="leg-dot" style="background:#ffd737"></div>ISS</div>
+  </div>
+
+  <div id="controls">
+    <button class="btn" id="btnQuake">⟳ ONDAS: ON</button>
+    <button class="btn" id="btnISS">◉ ISS: ON</button>
+  </div>
+
+  <!--
+    PAINEL ESQUERDO — Cidade
+    Preenchido por showCityPanel() quando o utilizador clica numa cidade
+  -->
+  <div id="city-panel">
+    <div class="panel-header">
+      <span class="panel-title">◎ Dados da Cidade</span>
+      <button class="panel-close" id="cityClose">×</button>
+    </div>
+    <div class="panel-body" id="cityBody"></div>
+    <div class="panel-footer">Fonte: Open-Meteo API (ECMWF / GFS)</div>
+  </div>
+
+  <!--
+    PAINEL DIREITO — Sismo
+    Preenchido por showQuakePanel() quando o utilizador clica num sismo
+  -->
+  <div id="quake-panel">
+    <div class="panel-header">
+      <span class="panel-title">⬡ Detalhe do Sismo</span>
+      <button class="panel-close" id="quakeClose">×</button>
+    </div>
+    <div class="panel-body" id="quakeBody"></div>
+    <div class="panel-footer">Fonte: USGS Earthquake Hazards Program</div>
+  </div>
+
+  <script>
+    // ════════════════════════════════════════════════════════════
+    //  CIDADES — configuração base
+    //  mock.hourly: curva de temperatura simulada para 24h
+    //  (usada quando a API Open-Meteo não responde)
+    // ════════════════════════════════════════════════════════════
+    const CITIES = [
+      { name:'Lisboa',  lat: 38.72, lon: -9.14,  mock:{ temp:22, hum:65, wind:15 } },
+      { name:'Londres', lat: 51.51, lon: -0.13,  mock:{ temp:15, hum:72, wind:21 } },
+      { name:'NYC',     lat: 40.71, lon:-74.01,  mock:{ temp:18, hum:58, wind:13 } },
+      { name:'S.Paulo', lat:-23.55, lon:-46.63,  mock:{ temp:24, hum:77, wind:9  } },
+      { name:'Dubai',   lat: 25.20, lon: 55.27,  mock:{ temp:39, hum:42, wind:19 } },
+      { name:'Tóquio', lat: 35.68, lon:139.69,  mock:{ temp:50, hum:66, wind:14 } },
+      { name:'Sydney',  lat:-33.87, lon:151.21,  mock:{ temp:16, hum:63, wind:23 } },
+      { name:'Mumbai',  lat: 19.08, lon: 72.88,  mock:{ temp:33, hum:81, wind:26 } },
+      { name:'Cairo',   lat: 30.04, lon: 31.24,  mock:{ temp:34, hum:28, wind:20 } },
+      { name:'Toronto', lat: 43.65, lon:-79.38,  mock:{ temp:14, hum:55, wind:17 } },
+    ];
+
+    /*
+      Gera uma curva de temperatura simulada para 24h.
+      Usa uma função seno para imitar o ciclo diário real:
+        - Mínimo às ~5h da manhã
+        - Máximo às ~15h da tarde
+        - Amplitude de ±5°C em torno da média
+      Não é meteorologicamente exata mas é visualmente convincente.
+    */
+    function genMockHourly(avgTemp) {
+      return Array.from({ length: 24 }, (_, h) => {
+        // sin com fase deslocada: mínimo em h=5, máximo em h=17
+        const angle = ((h - 5) / 24) * 2 * Math.PI;
+        const t = avgTemp + 5 * Math.sin(angle - Math.PI / 2) + 5;
+        return Math.round(t * 10) / 10;
+      });
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  SISMOS MOCK — fallback se USGS não responder
+    //  time: timestamp Unix em ms | depth: profundidade em km
+    // ════════════════════════════════════════════════════════════
+    const _T = Date.now();
+    const MOCK_QUAKES = [
+      { lat: 35.6,  lon: 139.8,  mag:4.1, depth: 32,  place:'Near Tokyo, Japan',      time:_T-72*60000  },
+      { lat: 37.8,  lon:  15.2,  mag:3.2, depth: 10,  place:'Sicily, Italy',           time:_T-145*60000 },
+      { lat:-33.4,  lon: -70.6,  mag:3.8, depth: 55,  place:'Santiago, Chile',         time:_T-210*60000 },
+      { lat: 38.7,  lon:  43.2,  mag:4.5, depth:  8,  place:'Eastern Turkey',          time:_T-18*60000  },
+      { lat: 19.4,  lon:-155.3,  mag:2.9, depth:  5,  place:'Hawaii, USA',             time:_T-330*60000 },
+      { lat: -6.2,  lon: 105.4,  mag:5.1, depth:120,  place:'Sunda Strait, Indonesia', time:_T-44*60000  },
+      { lat: 28.3,  lon:  84.7,  mag:4.7, depth: 15,  place:'Nepal',                   time:_T-88*60000  },
+      { lat: 51.2,  lon: 178.9,  mag:3.6, depth: 35,  place:'Aleutian Islands, USA',   time:_T-260*60000 },
+      { lat:-15.4,  lon:-172.1,  mag:4.2, depth: 22,  place:'Samoa',                   time:_T-400*60000 },
+      { lat: 40.8,  lon:  29.9,  mag:2.7, depth: 12,  place:'Marmara Sea, Turkey',     time:_T-510*60000 },
+      { lat: 36.1,  lon: 141.5,  mag:3.4, depth: 40,  place:'Ibaraki, Japan',          time:_T-195*60000 },
+      { lat:-23.1,  lon: -68.5,  mag:4.9, depth:180,  place:'Atacama, Chile',          time:_T-30*60000  },
+      { lat: 63.5,  lon: -22.1,  mag:3.1, depth:  6,  place:'Iceland',                 time:_T-620*60000 },
+      { lat:  4.8,  lon:  96.2,  mag:5.3, depth: 28,  place:'Aceh, Indonesia',         time:_T-55*60000  },
+      { lat:-56.2,  lon: -27.4,  mag:4.0, depth: 70,  place:'South Sandwich Islands',  time:_T-730*60000 },
+      { lat: 33.4,  lon: 130.8,  mag:2.8, depth: 14,  place:'Fukuoka, Japan',          time:_T-480*60000 },
+      { lat: -8.4,  lon: 114.3,  mag:3.7, depth: 45,  place:'Bali, Indonesia',         time:_T-160*60000 },
+      { lat: 47.2,  lon: 151.4,  mag:4.4, depth: 60,  place:'Kuril Islands, Russia',   time:_T-95*60000  },
+    ];
+
+    // Polígonos dos continentes (projeção equiretangular)
+    const CONTINENTS = [
+      [[-168,72],[-120,72],[-95,68],[-80,50],[-55,47],[-60,38],[-75,25],[-80,10],[-100,18],[-117,30],[-122,38],[-128,50],[-140,60],[-168,72]],
+      [[-80,10],[-60,12],[-50,5],[-38,-8],[-38,-22],[-44,-32],[-52,-35],[-65,-55],[-72,-48],[-80,-30],[-78,-5],[-80,10]],
+      [[-12,72],[-10,58],[0,50],[10,38],[28,38],[38,45],[30,55],[25,72],[-12,72]],
+      [[-18,37],[12,37],[20,34],[35,30],[50,15],[52,12],[50,10],[45,5],[38,-5],[35,-15],[25,-35],[18,-35],[10,-25],[0,-8],[-10,5],[-18,14],[-18,37]],
+      [[35,72],[60,72],[100,72],[145,68],[170,68],[170,55],[145,38],[130,28],[120,15],[105,2],[100,-5],[78,8],[60,22],[45,38],[35,48],[35,72]],
+      [[114,-20],[130,-15],[140,-18],[154,-26],[152,-38],[130,-40],[116,-35],[114,-20]],
+      [[-58,80],[-15,82],[-12,72],[-45,60],[-58,72],[-58,80]],
+    ];
+
+    // ════════════════════════════════════════════════════════════
+    //  ESTADO GLOBAL
+    // ════════════════════════════════════════════════════════════
+    let cityData      = [];
+    let quakes        = MOCK_QUAKES;
+    let issPos        = { lat:0, lon:0, real:false };
+    let worldMap = null; // imagem do mapa-múndi 
+    let issImg   = null; // imagem do ícone da ISS
+
+    let quakeLoop     = true;
+    let issVisible    = true;
+    let waves         = [];
+    let pulseTime     = 0;
+
+    let hoveredCity   = null;   // cidade sob o cursor → tooltip no canvas
+    let hoveredQuake  = null;   // sismo sob o cursor → cresce
+    let selectedCity  = null;   // cidade clicada → painel esquerdo
+    let selectedQuake = null;   // sismo clicado  → painel direito
+
+
+    // ════════════════════════════════════════════════════════════
+    //  FETCH — OPEN-METEO
+    //
+    //  Novo parâmetro: hourly=temperature_2m&forecast_days=1
+    //  Devolve um array de 24 valores (uma temperatura por hora)
+    //  para o dia atual no fuso horário local da cidade.
+    //
+    //  Limites: gratuita, sem chave, ~10.000 req/dia por IP.
+    //  Atualização dos dados: cada 15 minutos na fonte.
+    // ════════════════════════════════════════════════════════════
+    async function fetchCities() {
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 6000); // timeout 6s
+
+        const results = await Promise.all(
+          CITIES.map(c =>
+            fetch(
+              `https://api.open-meteo.com/v1/forecast` +
+              `?latitude=${c.lat}&longitude=${c.lon}` +
+              `&current=temperature_2m,relativehumidity_2m,windspeed_10m` +
+              `&hourly=temperature_2m` +   // temperaturas hora a hora
+              `&forecast_days=1` +          // só hoje (24 valores em vez de 168)
+              `&timezone=auto`,             // fuso horário automático da cidade
+              { signal: ctrl.signal }
+            ).then(r => r.json())
+          )
+        );
+
+        cityData = CITIES.map((c, i) => {
+          const res    = results[i];
+          const hourly = res.hourly?.temperature_2m ?? genMockHourly(c.mock.temp);
+          const minT   = Math.min(...hourly);
+          const maxT   = Math.max(...hourly);
+
+          return {
+            ...c,
+            temp:   res.current?.temperature_2m      ?? c.mock.temp,
+            hum:    res.current?.relativehumidity_2m ?? c.mock.hum,
+            wind:   res.current?.windspeed_10m       ?? c.mock.wind,
+            hourly, // array de 24 temperaturas horárias
+            minT,   // mínima do dia
+            maxT,   // máxima do dia
+            real:   true,
+          };
+        });
+
+        console.log('Open-Meteo OK com dados horários');
+
+      } catch(e) {
+        console.warn('Open-Meteo falhou, a usar mock:', e.message);
+        // Fallback: gera curva simulada para cada cidade
+        cityData = CITIES.map(c => {
+          const hourly = genMockHourly(c.mock.temp);
+          return {
+            ...c, ...c.mock,
+            hourly,
+            minT: Math.min(...hourly),
+            maxT: Math.max(...hourly),
+            real: false,
+          };
+        });
+      }
+
+      const el = document.getElementById('loading');
+      if (el) el.style.display = 'none';
+      buildHUD();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  FETCH — USGS (Sismos)
+    // ════════════════════════════════════════════════════════════
+    async function fetchEarthquakes() {
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 5000);
+        const r    = await fetch(
+          'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson',
+          { signal: ctrl.signal }
+        );
+        const data = await r.json();
+        quakes = data.features.map(f => ({
+          lon:   f.geometry.coordinates[0],
+          lat:   f.geometry.coordinates[1],
+          depth: f.geometry.coordinates[2],
+          mag:   f.properties.mag,
+          place: f.properties.place,
+          time:  f.properties.time,
+        }));
+        console.log('USGS OK —', quakes.length, 'sismos');
+      } catch(e) {
+        console.warn('USGS falhou');
+        quakes = MOCK_QUAKES;
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  FETCH — ISS
+    // ════════════════════════════════════════════════════════════
+    async function fetchISS() {
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 3000);
+        const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544', { signal: ctrl.signal });
+        const d = await r.json();
+        issPos = { lat: d.latitude, lon: d.longitude, real: true };
+      } catch(e) {
+        issPos = { ...calcISSOrbit(), real: false };
+      }
+    }
+
+    // Órbita calculada: período 92.68 min, inclinação 51.64°
+    function calcISSOrbit() {
+      const t = Date.now() / 1000, T = 92.68 * 60;
+      const phase = (t % T) / T * Math.PI * 2;
+      return { lat: 51.64 * Math.sin(phase), lon: (((t/T*360)%360)+540)%360-180 };
+    }
+
+    function buildHUD() {
+  const menu = document.getElementById('city-menu');
+
+  menu.innerHTML = cityData.map((c, i) =>
+    `<button class="city-btn" id="citybtn-${i}">${c.name} ${c.temp}°C</button>`
+  ).join('');
+
+  // Cada botão abre o painel da respetiva cidade
+  cityData.forEach((c, i) => {
+    document.getElementById(`citybtn-${i}`).addEventListener('click', () => {
+      // Fecha painel de sismos se estiver aberto
+      document.getElementById('quake-panel').classList.remove('open');
+      selectedQuake = null;
+      selectedCity  = c;
+      showCityPanel(c);
+      updateCityMenuActive();
+    });
+  });
+}
+
+// Atualiza qual botão tem a classe .active (cidade com painel aberto)
+function updateCityMenuActive() {
+  cityData.forEach((c, i) => {
+    const btn = document.getElementById(`citybtn-${i}`);
+    if (!btn) return;
+    btn.className = 'city-btn' + (selectedCity === c ? ' active' : '');
+  });
+}
+    
+
+    // Iniciar
+    fetchCities(); fetchEarthquakes(); fetchISS();
+    setInterval(fetchISS, 5000);
+    setInterval(() => { fetchCities(); fetchEarthquakes(); }, 600000);
+
+    // Toggles
+    document.getElementById('btnQuake').addEventListener('click', function() {
+      quakeLoop = !quakeLoop;
+      this.textContent = `⟳ ONDAS: ${quakeLoop ? 'ON' : 'OFF'}`;
+      this.className = 'btn' + (quakeLoop ? '' : ' off');
+    });
+    document.getElementById('btnISS').addEventListener('click', function() {
+      issVisible = !issVisible;
+      this.textContent = `◉ ISS: ${issVisible ? 'ON' : 'OFF'}`;
+      this.className = 'btn' + (issVisible ? '' : ' off');
+    });
+
+    // Fechar painéis
+    document.getElementById('cityClose').addEventListener('click',  () => {
+      document.getElementById('city-panel').classList.remove('open');
+      selectedCity = null;
+      updateCityMenuActive();
+    });
+    document.getElementById('quakeClose').addEventListener('click', () => {
+      document.getElementById('quake-panel').classList.remove('open');
+      selectedQuake = null;
+    });
+
+
+    // ════════════════════════════════════════════════════════════
+    //  PAINEL DA CIDADE — showCityPanel()
+    //
+    //  Constrói o HTML do painel esquerdo com:
+    //    1. Temperatura atual (número grande, cor da temperatura)
+    //    2. Mínima e máxima do dia (lado a lado)
+    //    3. Gráfico SVG de variação horária (24h)
+    //    4. Humidade e vento
+    //
+    //  O gráfico SVG é gerado inline — não precisa de biblioteca externa.
+    // ════════════════════════════════════════════════════════════
+    function showCityPanel(city) {
+      const currentHour = new Date().getHours(); // hora atual local
+      const col         = tempColorCSS(city.temp);
+
+      // Gráfico SVG de temperaturas horárias
+      const chartSVG = buildTempChart(
+        city.hourly,     // array de 24 temperaturas
+        currentHour,     // hora atual (para o marcador vertical)
+        city.minT,       // mínima do dia (escala Y)
+        city.maxT,       // máxima do dia (escala Y)
+        col              // cor da linha (temperatura atual)
+      );
+
+      // Rótulo textual da temperatura
+      const tempLabel = city.temp < 5  ? 'Muito frio'
+                      : city.temp < 15 ? 'Frio'
+                      : city.temp < 22 ? 'Ameno'
+                      : city.temp < 30 ? 'Quente'
+                      : 'Muito quente';
+
+      const srcLabel = city.real
+        ? '<span style="color:rgba(85,170,255,0.5);font-size:7px">✓ OPEN-METEO</span>'
+        : '<span style="color:rgba(255,160,60,0.5);font-size:7px">~ ESTIMATIVA</span>';
+
+      document.getElementById('cityBody').innerHTML = `
+        <!-- Nome da cidade e fonte dos dados -->
+        <div style="padding-top:16px;margin-bottom:2px;font-size:11px;letter-spacing:3px;color:rgba(85,170,255,0.9)">
+          ${city.name.toUpperCase()}
+        </div>
+        <div style="margin-bottom:2px">${srcLabel}</div>
+
+        <!-- Temperatura atual em destaque -->
+        <div class="temp-block">
+          <div class="temp-number" style="color:${col}">${city.temp}</div>
+          <div class="temp-meta">
+            <span class="temp-label" style="color:${col}">°C — ${tempLabel}</span>
+            <span class="temp-sub">Temperatura atual</span>
+          </div>
+        </div>
+
+        <!-- Mínima e máxima do dia -->
+        <div class="minmax" style="margin-bottom:18px">
+          <div class="minmax-item">
+            <span class="minmax-label">↓ Mínima hoje</span>
+            <span class="minmax-value" style="color:#5ab4ff">${city.minT.toFixed(1)}°C</span>
+          </div>
+          <div class="minmax-item">
+            <span class="minmax-label">↑ Máxima hoje</span>
+            <span class="minmax-value" style="color:${col}">${city.maxT.toFixed(1)}°C</span>
+          </div>
+        </div>
+
+        <!-- Gráfico de variação horária -->
+        <div class="chart-section">
+          <div class="chart-title">⬥ Variação de temperatura — 24h</div>
+          ${chartSVG}
+        </div>
+
+        <!-- Humidade e vento -->
+        <div class="data-row">
+          <span class="data-label">💧 Humidade relativa</span>
+          <span class="data-value">${city.hum}%</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">💨 Vento</span>
+          <span class="data-value">${city.wind} km/h</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">🌐 Coordenadas</span>
+          <span class="data-value" style="font-size:9px;color:rgba(255,255,255,0.4)">
+            ${city.lat.toFixed(4)}°, ${city.lon.toFixed(4)}°
+          </span>
+        </div>
+      `;
+      updateCityMenuActive();
+      document.getElementById('city-panel').classList.add('open');
+    }
+
+    /*
+      buildTempChart() — gera um SVG inline com o gráfico horário.
+
+      Elementos do gráfico:
+        - Área preenchida com gradiente sob a linha (fill)
+        - Linha da temperatura ao longo das 24h (polyline)
+        - Linha vertical pontilhada na hora atual
+        - Ponto na temperatura atual (círculo laranja)
+        - Labels de hora no eixo X: 00h, 06h, 12h, 18h, 23h
+        - Labels de temperatura no eixo Y: mínima e máxima
+
+      A projeção é simples:
+        x = (hora / 23) * W        → 0h à esquerda, 23h à direita
+        y = H - ((temp - min) / (max - min)) * H  → min em baixo, max em cima
+    */
+    function buildTempChart(hourly, currentHour, minT, maxT, lineColor) {
+      const W      = 252;   // largura em px (ajusta se mudares a largura do painel)
+      const H      = 72;    // altura do gráfico em px
+      const range  = (maxT - minT) || 1; // evita divisão por zero se todos iguais
+
+      // Converte cada hora em coordenadas x,y
+      function toXY(h) {
+        return {
+          x: (h / 23) * W,
+          y: H - ((hourly[h] - minT) / range) * H,
+        };
+      }
+
+      // Pontos da polyline (linha da temperatura)
+      const linePts = hourly.map((_, h) => {
+        const { x, y } = toXY(h);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+
+      // Pontos do polygon (área preenchida — começa e acaba no fundo)
+      const fillPts = `0,${H} ` + linePts + ` ${W},${H}`;
+
+      // Posição do marcador da hora atual
+      const cur  = toXY(Math.min(currentHour, 23));
+
+      // Extrai componentes RGB da cor (para o gradiente com opacidade)
+      // lineColor vem em formato "rgb(R,G,B)" da função tempColorCSS()
+      const rgbMatch = lineColor.match(/\d+/g) || ['255','160','60'];
+      const [rr, gg, bb] = rgbMatch;
+
+      // Labels do eixo X (horas)
+      const xLabels = [0, 6, 12, 18, 23].map(h => {
+        const x = (h / 23) * W;
+        return `<text x="${x.toFixed(1)}" y="${H+14}" text-anchor="middle" font-size="7"
+                  fill="rgba(255,255,255,0.25)" font-family="Courier New">${String(h).padStart(2,'0')}h</text>`;
+      }).join('');
+
+      // Linhas de grade horizontais (cada 5°C)
+      const gridStep = 5;
+      let gridLines  = '';
+      for (let t = Math.ceil(minT/gridStep)*gridStep; t <= maxT; t += gridStep) {
+        const y = H - ((t - minT) / range) * H;
+        gridLines += `<line x1="0" y1="${y.toFixed(1)}" x2="${W}" y2="${y.toFixed(1)}"
+                        stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`;
+      }
+
+      return `
+        <svg width="${W}" height="${H+20}" viewBox="0 0 ${W} ${H+20}"
+             xmlns="http://www.w3.org/2000/svg" style="overflow:visible;display:block">
+          <defs>
+            <!-- Gradiente vertical: cor no topo, transparente em baixo -->
+            <linearGradient id="tg_${city_id(hourly)}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="rgb(${rr},${gg},${bb})" stop-opacity="0.28"/>
+              <stop offset="100%" stop-color="rgb(${rr},${gg},${bb})" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+
+          <!-- Linhas de grade -->
+          ${gridLines}
+
+          <!-- Área preenchida sob a curva -->
+          <polygon points="${fillPts}"
+            fill="url(#tg_${city_id(hourly)})" />
+
+          <!-- Linha da temperatura -->
+          <polyline points="${linePts}"
+            fill="none"
+            stroke="rgb(${rr},${gg},${bb})"
+            stroke-width="1.8"
+            stroke-linejoin="round"
+            stroke-linecap="round"/>
+
+          <!-- Linha vertical da hora atual (pontilhada) -->
+          <line x1="${cur.x.toFixed(1)}" y1="0"
+                x2="${cur.x.toFixed(1)}" y2="${H}"
+                stroke="rgba(255,255,255,0.35)"
+                stroke-width="1"
+                stroke-dasharray="3,3"/>
+
+          <!-- Ponto na hora atual -->
+          <circle cx="${cur.x.toFixed(1)}" cy="${cur.y.toFixed(1)}"
+                  r="3.5"
+                  fill="rgb(${rr},${gg},${bb})"
+                  stroke="rgba(255,255,255,0.5)"
+                  stroke-width="1"/>
+
+          <!-- Labels do eixo X -->
+          ${xLabels}
+
+          <!-- Label da temperatura atual junto ao ponto -->
+          <text x="${Math.min(cur.x + 5, W - 28).toFixed(1)}"
+                y="${(cur.y - 6).toFixed(1)}"
+                font-size="7.5" fill="rgb(${rr},${gg},${bb})"
+                font-family="Courier New" font-weight="bold">
+            ${hourly[currentHour]}°
+          </text>
+        </svg>
+      `;
+    }
+
+    // ID único para o gradiente SVG (evita conflitos entre painéis)
+    // Usa a soma dos primeiros valores do array — simples e funcional
+    function city_id(hourly) {
+      return Math.round(hourly.slice(0,3).reduce((a,b) => a+b, 0));
+    }
+
+    // Devolve cor CSS "rgb(R,G,B)" para uma temperatura
+    // Azul (frio) → Verde → Amarelo → Vermelho (quente)
+    function tempColorCSS(t) {
+      if (t < 0)  return 'rgb(30,100,220)';
+      if (t < 10) return `rgb(${Math.round(30+(t/10)*20)},${Math.round(100+(t/10)*110)},220)`;
+      if (t < 20) return `rgb(50,${Math.round(210-(t-10)*6)},${Math.round(150-(t-10)*15)})`;
+      if (t < 30) return `rgb(${Math.round(50+(t-20)*19)},${Math.round(150-(t-20)*13)},20)`;
+      return `rgb(${Math.min(255,Math.round(240+(t-30)*3))},${Math.max(20,Math.round(50-(t-30)*3))},20)`;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  PAINEL DO SISMO — showQuakePanel()
+    // ════════════════════════════════════════════════════════════
+    function magColor(mag) {
+      if (mag < 4.0) return [80,210,100];
+      if (mag < 5.0) return [240,190,20];
+      if (mag < 6.0) return [255,130,20];
+      return [255,50,20];
+    }
+    function magLabel(mag) {
+      if (mag < 4.0) return 'Minor';
+      if (mag < 5.0) return 'Light';
+      if (mag < 6.0) return 'Moderate';
+      if (mag < 7.0) return 'Strong';
+      return 'Major';
+    }
+
+    function showQuakePanel(q) {
+      const date     = new Date(q.time);
+      const dateStr  = date.toLocaleDateString('pt-PT',  { day:'2-digit', month:'long', year:'numeric' });
+      const timeStr  = date.toLocaleTimeString('pt-PT',  { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZoneName:'short' });
+      const [r,g,b]  = magColor(q.mag);
+      const col      = `rgb(${r},${g},${b})`;
+      const barPct   = Math.min((q.mag/9)*100, 100).toFixed(1);
+      const depthCat = q.depth < 70  ? 'Superficial — maior impacto à superfície'
+                     : q.depth < 300 ? 'Intermédio'
+                     : 'Profundo';
+
+      document.getElementById('quakeBody').innerHTML = `
+        <div class="mag-block">
+          <div class="mag-number" style="color:${col}">${q.mag.toFixed(1)}</div>
+          <div class="mag-info">
+            <span class="mag-label" style="color:${col}">${magLabel(q.mag)}</span>
+            <span class="mag-scale">Escala de Richter</span>
+          </div>
+        </div>
+        <div class="mag-bar-track">
+          <div class="mag-bar-fill" style="width:${barPct}%;background:linear-gradient(90deg,rgba(${r},${g},${b},0.3),${col})"></div>
+        </div>
+        <div class="data-row">
+          <span class="data-label">📍 Local</span>
+          <span class="data-value">${q.place}</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">🕐 Data</span>
+          <span class="data-value">${dateStr}</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">⏱ Hora</span>
+          <span class="data-value">${timeStr}</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">🕳 Profundidade</span>
+          <span class="data-value">${q.depth.toFixed(1)} km</span>
+          <span class="data-sub">${depthCat}</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">🌐 Coordenadas</span>
+          <span class="data-value" style="font-size:9px;color:rgba(255,255,255,0.4)">
+            ${q.lat.toFixed(4)}°, ${q.lon.toFixed(4)}°
+          </span>
+        </div>
+      `;
+
+      document.getElementById('quake-panel').classList.add('open');
+    }
+
+
+    // ════════════════════════════════════════════════════════════
+    //  SKETCH p5.js
+    // ════════════════════════════════════════════════════════════
+    new p5(function(p) {
+
+      function proj(lon, lat) {
+        return { x: p.map(lon,-180,180,0,p.width), y: p.map(lat,90,-90,0,p.height) };
+      }
+
+      // Cor p5.js para a temperatura (para o canvas)
+      function tempColor(t) {
+        const n = p.constrain(p.map(t,-15,45,0,1),0,1);
+        if (n < 0.33) return p.lerpColor(p.color(30,100,220), p.color(50,210,150), n*3);
+        if (n < 0.66) return p.lerpColor(p.color(50,210,150), p.color(240,170,20), (n-0.33)*3);
+        return              p.lerpColor(p.color(240,170,20),  p.color(255,50,20),  (n-0.66)*3);
+      }
+
+      p.preload = function() {
+        worldMap = p.loadImage ("world_map.jpg",
+          () => console.log('Mapa-múndi carregado'),
+          () => {console.warn('Falha ao carregar o mapa') ; worldMap = null ;}
+        );
+        issImg   = p.loadImage ("iss_icon.png",
+          () => console.log('Ícone da ISS carregado'),
+          () => {console.warn('Falha ao carregar o ícone da ISS') ; issImg = null ;}
+        );
+      };
+
+      p.setup = function() {
+        p.createCanvas(window.innerWidth, window.innerHeight);
+        p.frameRate(24);
+
+        p.canvas.addEventListener('mousemove', function(e) {
+          const mx = e.offsetX, my = e.offsetY;
+          checkCityHover(mx, my);
+          checkQuakeHover(mx, my);
+          // Cursor pointer quando está sobre algo clicável
+          p.canvas.style.cursor = (hoveredCity || hoveredQuake) ? 'pointer' : 'default';
+        });
+
+        p.canvas.addEventListener('click', function() {
+          if (hoveredCity) {
+            // Fechar painel de sismos se estiver aberto
+            document.getElementById('quake-panel').classList.remove('open');
+            selectedQuake = null;
+            selectedCity  = hoveredCity;
+            showCityPanel(selectedCity);
+          } else if (hoveredQuake) {
+            // Fechar painel de cidades se estiver aberto
+            document.getElementById('city-panel').classList.remove('open');
+            selectedCity  = null;
+            selectedQuake = hoveredQuake;
+            showQuakePanel(selectedQuake);
+          }
+        });
+      };
+
+      p.draw = function() {
+        p.background(5,10,18);
+        pulseTime += 0.03;
+        drawGrid();
+        drawMap();
+        drawEarthquakes();
+        drawCities();
+        if (issVisible) drawISS();
+        if (quakeLoop)  tickWaves();
+        updateStatus();
+      };
+
+      function drawGrid() {
+        for (let lat=-90; lat<=90; lat+=30) {
+          const y=p.map(lat,90,-90,0,p.height), eq=lat===0;
+          p.stroke(eq?28:16, eq?72:48, eq?130:82, eq?100:38);
+          p.strokeWeight(eq?1:0.35);
+          p.line(0,y,p.width,y);
+        }
+        p.stroke(16,48,82,36); p.strokeWeight(0.35);
+        for (let lon=-180; lon<=180; lon+=30) {
+          const x=p.map(lon,-180,180,0,p.width);
+          p.line(x,0,x,p.height);
+        }
+      }
+
+      function drawMap() {
+        if (worldMap) {
+          p.tint(20,45,80,200);
+          p.image(worldMap, 0, 0, p.width, p.height);
+          p.noTint();
+        } else {
+          drawContinents();
+        }
+      }
+
+      function drawContinents() {
+        p.fill(13,26,50); p.stroke(28,72,130,60); p.strokeWeight(0.8);
+        for (const c of CONTINENTS) {
+          p.beginShape();
+          for (const [lon,lat] of c) { const po=proj(lon,lat); p.vertex(po.x,po.y); }
+          p.endShape(p.CLOSE);
+        }
+      }
+
+      // ── SISMOS ──────────────────────────────────────────────
+      function drawEarthquakes() {
+        for (const q of quakes) {
+          const po      = proj(q.lon,q.lat);
+          const isHov   = hoveredQuake  === q;
+          const isSel   = selectedQuake === q;
+          const baseR   = p.map(q.mag,2.5,8,3,12);
+          const mult    = isHov ? 2.5 : (isSel ? 1.8 : 1);
+          const radius  = baseR * mult;
+          const [r,g,b] = magColor(q.mag);
+
+          p.noStroke(); p.fill(r,g,b, isHov?255:190);
+          p.ellipse(po.x,po.y,radius*0.55);
+
+          p.noFill(); p.stroke(r,g,b, isHov?140:50);
+          p.strokeWeight(isHov?1.2:0.6);
+          p.ellipse(po.x,po.y,radius*2.5);
+
+          if (isSel) {
+            p.stroke(r,g,b,170); p.strokeWeight(1.5);
+            p.ellipse(po.x,po.y,radius*3.8);
+          }
+          if (isHov) {
+            p.noStroke(); p.fill(r,g,b,220);
+            p.textSize(9); p.textAlign(p.CENTER);
+            p.text('M '+q.mag.toFixed(1), po.x, po.y-radius*1.6);
+            p.fill(255,255,255,65); p.textSize(6.5);
+            p.text('clica para detalhes', po.x, po.y+radius*1.8+9);
+          }
+        }
+        for (const w of waves) {
+          p.noFill(); p.stroke(255,65,16,w.alpha);
+          p.strokeWeight(w.mag>5?1.1:0.6);
+          p.ellipse(w.x,w.y,w.r*2);
+        }
+      }
+
+      function tickWaves() {
+        if (p.frameCount%50===0 && quakes.length>0) {
+          const q=quakes[Math.floor(Math.random()*Math.min(quakes.length,20))];
+          const po=proj(q.lon,q.lat);
+          waves.push({x:po.x,y:po.y,r:3,alpha:150,mag:q.mag});
+        }
+        for (let i=waves.length-1; i>=0; i--) {
+          waves[i].r+=1.2; waves[i].alpha-=4;
+          if (waves[i].alpha<=0) waves.splice(i,1);
+        }
+      }
+
+      // ── CIDADES ─────────────────────────────────────────────
+      // Quando selecionada, tem um anel extra branco para indicar
+      // que o painel está aberto para essa cidade.
+      function drawCities() {
+        if (!cityData.length) return;
+        for (const c of cityData) {
+          const po    = proj(c.lon,c.lat);
+          const col   = tempColor(c.temp);
+          const isHov = hoveredCity  === c;
+          const isSel = selectedCity === c;
+          const tf    = p.map(c.temp,-10,40,0.6,2);
+          const pulse = 1 + 0.2 * Math.sin(pulseTime*tf);
+          const mult  = isHov ? 1.5 : 1; // cresce no hover
+
+          p.noFill();
+          p.stroke(p.red(col),p.green(col),p.blue(col),28); p.strokeWeight(1);
+          p.ellipse(po.x,po.y,22*pulse*mult);
+          p.stroke(p.red(col),p.green(col),p.blue(col),80);
+          p.ellipse(po.x,po.y,11*pulse*mult);
+
+          // Anel branco para a cidade selecionada
+          if (isSel) {
+            p.stroke(255,255,255,120); p.strokeWeight(1.2);
+            p.ellipse(po.x,po.y,28*pulse);
+          }
+
+          p.fill(p.red(col),p.green(col),p.blue(col),220); p.noStroke();
+          p.ellipse(po.x,po.y,3.5);
+
+          p.fill(150,200,255,isHov?180:115); p.textSize(7.5); p.textAlign(p.LEFT);
+          p.text(c.name, po.x+7, po.y-2);
+          p.fill(p.red(col),p.green(col),p.blue(col),140);
+          p.textSize(7);
+          p.text(c.temp+'°C', po.x+7, po.y+8);
+
+          // Hint de clique no hover
+          if (isHov) {
+            p.fill(255,255,255,60); p.textSize(6.5); p.textAlign(p.LEFT);
+            p.text('clica para detalhes', po.x+7, po.y+18);
+          }
+        }
+      }
+
+      // ── ISS ─────────────────────────────────────────────────
+      function drawISS() {
+         if (!issPos.real) {
+    const o = calcISSOrbit(); issPos.lat = o.lat; issPos.lon = o.lon;
+  }
+  const po = proj(issPos.lon, issPos.lat);
+     if (issImg) {
+  // Tamanho da imagem no mapa — aumenta ou diminui o valor 36
+  const size = 22;
+  p.imageMode(p.CENTER);
+  p.image(issImg, po.x, po.y, size, size);
+  p.imageMode(p.CORNER); // reset para não afetar outros elementos
+} else {
+  // Fallback: desenho original se a imagem não carregar
+  const blink = Math.sin(pulseTime * 5) > 0;
+  p.fill(255, 215, 55, blink ? 230 : 140); p.noStroke();
+  p.ellipse(po.x, po.y, 7);
+  p.stroke(255, 215, 55, 85); p.strokeWeight(2);
+  p.line(po.x-11, po.y, po.x-4, po.y);
+  p.line(po.x+4,  po.y, po.x+11, po.y);
+}
+      }
+
+      // ── HOVER — CIDADES ──────────────────────────────────────
+      function checkCityHover(mx,my) {
+        hoveredCity=null;
+        for (const c of cityData) {
+          const po=proj(c.lon,c.lat);
+          if (p.dist(mx,my,po.x,po.y)<22) { hoveredCity=c; break; }
+        }
+      }
+
+      // ── HOVER — SISMOS ───────────────────────────────────────
+      function checkQuakeHover(mx,my) {
+        // Só verifica sismos se não há cidade sob o cursor
+        // (cidades têm prioridade para evitar conflito)
+        if (hoveredCity) { hoveredQuake=null; return; }
+        hoveredQuake=null;
+        for (const q of quakes) {
+          const po=proj(q.lon,q.lat);
+          const hit=20+p.map(q.mag,2.5,8,0,10);
+          if (p.dist(mx,my,po.x,po.y)<hit) { hoveredQuake=q; break; }
+        }
+      }
+
+      function updateStatus() {
+        const t=new Date().toUTCString().slice(17,25);
+        const iss=issPos.real?'real':'calc';
+        document.getElementById('statusbar').textContent =
+          `UTC ${t}  ·  Sismos ≥2.5: ${quakes.length}  ·  ISS [${iss}]: ${issPos.lat.toFixed(2)}°, ${issPos.lon.toFixed(2)}°`;
+      }
+
+      p.windowResized=function() { p.resizeCanvas(window.innerWidth,window.innerHeight); };
+
+    }); // fim sketch p5.js
+  </script>
+</body>
+</html>
